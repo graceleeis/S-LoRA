@@ -156,13 +156,13 @@ __global__ void bgmv_multi_lora_rank_expand_kernel(T* __restrict__ Y, const T* _
                                    const int64_t* __restrict__ lora_ranks,
                                    const int64_t* __restrict__ loc_indicies,
                                    const int64_t* __restrict__ indicies,
-                                   int64_t qkvo, 
+                                   int64_t qkvo,
                                    const T* __restrict__ lora_scales) {
   auto block = cg::this_thread_block();
   size_t tile_idx = blockIdx.x;
   size_t batch_idx = blockIdx.y;
   size_t lora_idx = indicies[batch_idx];
-  size_t lora_rank = lora_ranks[lora_idx] / 4;
+  size_t lora_rank = lora_ranks[lora_idx] / 4; //qkvo是一定放在W里的
   constexpr size_t vec_size = 16 / sizeof(T);
   constexpr size_t tx = feat_in / vec_size;
   static_assert(feat_in % vec_size == 0);
@@ -226,7 +226,7 @@ void bgmv_kernel(T* __restrict__ Y, const T* __restrict__ X,
     dim3 nthrs(tx, ty, tz);
 
     bgmv_multi_lora_rank_expand_kernel<feat_in, feat_out>
-        <<<nblks, nthrs>>>(Y, X, W, start_indicies, 
+        <<<nblks, nthrs>>>(Y, X, W, start_indicies,
                            lora_ranks, loc_indicies, indicies,
                            qkvo, lora_scales);
   } else {
@@ -234,7 +234,7 @@ void bgmv_kernel(T* __restrict__ Y, const T* __restrict__ X,
     dim3 nblks(feat_out, batch_size);
     dim3 nthrs(32, 4);
     bgmv_multi_lora_rank_shrink_kernel<feat_in, feat_out>
-        <<<nblks, nthrs>>>(Y, X, W, start_indicies, 
+        <<<nblks, nthrs>>>(Y, X, W, start_indicies,
                            lora_ranks, loc_indicies, indicies,
                            qkvo);
   }

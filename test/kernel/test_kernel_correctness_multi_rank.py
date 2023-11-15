@@ -48,7 +48,7 @@ def batch_lora_forward_B(
     grid = (triton.cdiv(NUM_TOKENS, BLOCK_SIZE_M), triton.cdiv(HIDDEN, BLOCK_SIZE_N))
     triton_batch_lora_B[grid](output, x,
                               w,
-                              a_start, a_len, 
+                              a_start, a_len,
                               a_loc, batch_req_bins, a_scaling, qkvo_offset,
                               NUM_TOKENS, HIDDEN, MAX_LORA_RANK,
                               BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K)
@@ -94,6 +94,8 @@ def test_bgmv():
 
     qkvo = 0
     results = []
+    import zhijiang
+    zhijiang.zhijiang_vscode_attach()
     for i in range(N):
         a_id = batch_req_bins[i]
         a_w = key_buffer[a_start[a_id] + qkvo * R[a_id]: a_start[a_id] + (qkvo + 1) * R[a_id]]
@@ -119,12 +121,12 @@ def test_bgmv():
     def to_test():
         #batch_lora_forward_B(delta_qA, x,
         #                     key_buffer,
-        #                     a_start, a_len, 
+        #                     a_start, a_len,
         #                     a_loc, batch_req_bins, 0, a_scaling)
 
         dispatch_bgmv(delta_qA, x,
                       key_buffer,
-                      a_start, a_len, 
+                      a_start, a_len,
                       a_loc, batch_req_bins, 0, a_scaling)
         #ref = x @ key_buffer[:R].reshape(-1, H).T
 

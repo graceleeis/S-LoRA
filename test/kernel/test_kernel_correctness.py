@@ -48,29 +48,32 @@ def batch_lora_forward_B(
     grid = (triton.cdiv(NUM_TOKENS, BLOCK_SIZE_M), triton.cdiv(HIDDEN, BLOCK_SIZE_N))
     triton_batch_lora_B[grid](output, x,
                               w,
-                              a_start, a_len, 
+                              a_start, a_len,
                               a_loc, batch_req_bins, a_scaling, qkvo_offset,
                               NUM_TOKENS, HIDDEN, MAX_LORA_RANK,
                               BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K)
 
 
 def test_bgmv():
-    H = 4096
-    R = 128
-    N = 128
-    num_adapters = 2
+    H = 4096 # model hidden size
+    R = 128 # lora rank
+    N = 16 # 多少个example
+    num_adapters = 3 # 多少个lora model
     num_head = 32
     part = "B"
-
+    import zhijiang
+    zhijiang.zhijiang_vscode_attach()
     if part == "A":
         x = torch.randn((N, H), dtype=torch.float16, device="cuda")
         delta_qA = torch.zeros((len(x), R), dtype=torch.float16, device="cuda")
         forward_func = dispatch_bgmv
     else:
         x = torch.randn((N, R), dtype=torch.float16, device="cuda")
-        delta_qA = torch.zeros((len(x), H), dtype=torch.float16, device="cuda")
+        delta_qA = torch.zeros((len(x), H), dtype=torch.float16, device="cuda") # output result
         forward_func = dispatch_bgmv
-
+    # qkvo都需要lora的话， 那就是4
+    # 每个lora weight的大小都是R,H， 无论是a还是b
+    # key_buffer的格式 》每个lora model的qkvo的lora weight连续存储 》》 [R*4, H], [R*4, H], [R*4, H], [R*4, H], ....
     key_buffer = torch.randn((R * 4 * num_adapters, num_head, H // num_head), dtype=torch.float16, device="cuda")
     a_len = torch.tensor([R * 4] * num_adapters, dtype=torch.long, device="cuda")
     a_start = torch.zeros_like(a_len)
@@ -80,9 +83,9 @@ def test_bgmv():
     batch_req_bins = torch.concat([
         torch.tensor([i] * ((N  + num_adapters - 1) // num_adapters), dtype=torch.long, device="cuda")
         for i in range(num_adapters)])
-    batch_req_bins = batch_req_bins[:len(x)]
+    batch_req_bins = batch_req_bins[:len(x)] #  每个example用哪个lora model
 
-    qkvo = 1
+    qkvo = 1 # 此次bgmv是q/k/v/o的哪个， 作为key_buffer的offset
     results = []
     for i in range(N):
         a_id = batch_req_bins[i]
@@ -94,6 +97,16 @@ def test_bgmv():
         results.append(x[i:i+1, :] @ a_w)
     ref = delta_qA + torch.concat(results)
 
+    # delta_qA是output result tesnsor
+    # x是input tensor
+    # key_buffer存储了所有的lora model的qkvo的lora weight(a or b)
+    # a_start每个lora model在key_buffer中的起始位置， len(a_start) = num_adapters
+    # a_len每个lora model的R*4, 因为不用的lora model的R可以不一样
+    # a_loc每个lora weight的大小是R，H， len(a_loc) = num_adapters * R * 4
+        # H的大小是固定，所以用H为单位来管理， 但是start + lora_rank*qkvo_offset只是逻辑上的index， 要根据a_loc转成对应的key_buffer的实际index
+    # batch_req_bins每个example用哪个lora model， len(batch_req_bins) = len(x)
+    # qkvo 进行是q/k/v/o的哪个
+    # a_scaling每个lora model的scaling factor， len(a_scaling) = num_adapters
     forward_func(delta_qA, x,
                  key_buffer,
                  a_start, a_len,
@@ -104,12 +117,12 @@ def test_bgmv():
     def to_test():
         #batch_lora_forward_B(delta_qA, x,
         #                     key_buffer,
-        #                     a_start, a_len, 
+        #                     a_start, a_len,
         #                     a_loc, batch_req_bins, 0, a_scaling)
 
         dispatch_bgmv(delta_qA, x,
                       key_buffer,
-                      a_start, a_len, 
+                      a_start, a_len,
                       a_loc, batch_req_bins, 0, a_scaling)
         #ref = x @ key_buffer[:R].reshape(-1, H).T
 
